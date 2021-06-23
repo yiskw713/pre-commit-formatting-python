@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+set -euo pipefail -o posix
+
+echo "Pre-commit script for formatting is running..."
+
+# build docker
+docker image build -t pre-commit -f Dockerfile.pre-commit .
+
+# run docker
+if [ ! "$(docker ps -q -f name='pre-commit-runner')" ]; then
+    docker container run -it -d --rm --name pre-commit-runner \
+        -v $PWD:/project -v $PWD:/project pre-commit /bin/bash
+fi
+
+for FILE in `git diff --staged --name-only --diff-filter=AMRT "*.py"`; do
+    # black
+    docker container exec pre-commit-runner black --quiet $FILE
+
+    # isort
+    docker container exec pre-commit-runner \
+        isort $FILE --only-modified --settings-path=pyproject.toml
+
+    # flake8
+    docker container exec pre-commit-runner \
+        flake8 --show-source --max-line-length 88 --ignore=E203,W503,W504 $FILE
+
+    git add $FILE
+done
+
+# stop docker container
+docker container stop pre-commit-runner
+
